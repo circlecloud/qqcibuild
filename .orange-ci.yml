@@ -1,0 +1,65 @@
+master:
+  push:
+    - wework:
+        title: qq_ci_build
+        notify:
+          - jingjingwu
+          - $ORANGE_BUILD_USER
+      services:
+        - docker
+        
+      envFrom: https://git.code.oa.com/jingjingwu/ciBuildSecret/blob/master/docker-image.txt
+      env:
+        DOCKER_LATEST_TAG_CSIG: $DOCKER_IMAGE:latest
+      stages:
+        - name: tnpm install
+          script: tnpm install
+
+        - name: docker login
+          script: docker login -u $DOCKER_IMAGE_USER -p $DOCKER_IMAGE_PWD
+        - name: build image
+          script: docker build --network host -t $DOCKER_IMAGE_LATEST_TAG .
+        - name: push image
+          script: docker push $DOCKER_IMAGE_LATEST_TAG
+
+        - name: docker login for csig
+          script: docker login -u $DOCKER_USER -p $DOCKER_PWD csighub.tencentyun.com
+        - name: build image for csig
+          script: docker build --network=host --ulimit nofile=100002:100002 -t ${DOCKER_LATEST_TAG} .
+        - name: push image to csig
+          script: docker push $DOCKER_LATEST_TAG
+        
+        - name: docker images
+          script: docker images > message.txt
+        
+        - name: comment to git
+          type: git:comment
+          options:
+            fromFile: message.txt
+            
+        - name: message to self
+          type: wework:message
+          options:
+            fromFile: message.txt
+  
+  merge_request:
+    - stages:
+        - name: make commitlist
+          type: git:commitList
+          options:
+            toFile: commits-data.json
+        - name: do commitlint
+          image: csighub.tencentyun.com/plugins/commitlint:latest
+          settings:
+            from_file: commits-data.json
+
+$:
+  tag_push:
+    - stages:
+        - name: changelog
+          type: git:changeLog
+          options:
+            filename: CHANGELOG.md
+            target: master
+          envExport:
+            latestChangeLog: LATEST_CHANGE_LOG
